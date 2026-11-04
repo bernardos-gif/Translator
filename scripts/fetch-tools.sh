@@ -18,7 +18,7 @@ mkdir -p "$OUT" build/work
 echo "→ winetricks $WINETRICKS_TAG"
 curl -fsSL -o "$OUT/winetricks" "https://raw.githubusercontent.com/Winetricks/winetricks/$WINETRICKS_TAG/src/winetricks"
 chmod +x "$OUT/winetricks"
-head -1 "$OUT/winetricks" | grep -q bash
+head -1 "$OUT/winetricks" | grep -q "^#!" || { echo "winetricks download looks wrong"; head -5 "$OUT/winetricks"; exit 1; }
 
 echo "→ cabextract $CABEXTRACT_VERSION (universal)"
 curl -fsSL -o build/work/cabextract.tar.gz "https://www.cabextract.org.uk/cabextract-$CABEXTRACT_VERSION.tar.gz"
