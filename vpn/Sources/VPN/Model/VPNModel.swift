@@ -223,7 +223,8 @@ final class VPNModel: ObservableObject {
     func connectThisMac() async {
         let wireGuard = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.wireGuardBundleID)
         if macImported, let wireGuard {
-            NSWorkspace.shared.openApplication(at: wireGuard, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openApplication(at: wireGuard, configuration: NSWorkspace.OpenConfiguration(),
+                                               completionHandler: nil)
             return
         }
         let name = macDeviceName
