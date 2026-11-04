@@ -2,7 +2,7 @@ name: VPN app
 
 on:
   push:
-    branches: [claude/adoring-allen-x0h3bi, main]
+    branches: [claude/adoring-allen-x0h3bi, claude/great-hypatia-fjs6s2, main]
     paths: ["vpn/**", ".github/workflows/vpn.yml"]
   workflow_dispatch:
 
