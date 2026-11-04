@@ -217,7 +217,9 @@ final class SetupManager: ObservableObject {
         let gecko = runtime.rootDir.appendingPathComponent("share/wine/gecko", isDirectory: true)
         let fm = FileManager.default
         let files = ["x86", "x86_64"].map { "wine-gecko-\(Self.geckoVersion)-\($0).msi" }
-        if files.allSatisfy({ fm.fileExists(atPath: gecko.appendingPathComponent($0).path) }) {
+        // Recent Wine builds already ship Gecko (unpacked), so there's nothing to download.
+        let bundled = (try? fm.contentsOfDirectory(atPath: gecko.path))?.contains { $0.hasPrefix("wine-gecko") } ?? false
+        if bundled || files.allSatisfy({ fm.fileExists(atPath: gecko.appendingPathComponent($0).path) }) {
             set(.addons, .done("Installed"))
             return true
         }

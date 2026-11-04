@@ -54,7 +54,7 @@ jobs:
           WINE="$(find rt -path '*/bin/wine' -type f | head -1)"
           ROOT="$(dirname "$(dirname "$WINE")")"
           echo "--- add-on versions Wine expects:"
-          strings -e l "$ROOT/lib/wine/x86_64-windows/appwiz.cpl" | grep -iE "gecko|mono" | head || true
+          ls "$ROOT/share/wine/gecko" "$ROOT/share/wine/mono" || true
           strings "$ROOT/lib/wine/x86_64-windows/appwiz.cpl" | grep -E "^[0-9]+\.[0-9]+(\.[0-9]+)?$" | head || true
           ls "$ROOT/share/wine" || true
           "$WINE" --version
