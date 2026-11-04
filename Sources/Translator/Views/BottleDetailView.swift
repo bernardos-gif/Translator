@@ -5,175 +5,378 @@ struct BottleDetailView: View {
     @EnvironmentObject private var model: AppModel
     let bottle: Bottle
 
-    @State private var discovered: [URL] = []
-    @State private var scanning = false
-    @State private var isDropTargeted = false
+    enum Tab: String, CaseIterable, Identifiable {
+        case programs = "Programs"
+        case components = "Components"
+        case settings = "Settings"
+        case tools = "Tools"
+        var id: String { rawValue }
+    }
+
+    @State private var tab: Tab = .programs
+    @State private var dropTargeted = false
 
     private var isBusy: Bool { model.busyBottles.contains(bottle.url) }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                if isBusy {
-                    busyBanner
+            VStack(alignment: .leading, spacing: 22) {
+                hero
+                if isBusy { busyBanner }
+                Picker("", selection: $tab) {
+                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
-                dropZone
-                pinnedSection
-                installedSection
-                settingsSection
-                toolsSection
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 460)
+
+                switch tab {
+                case .programs: programsTab
+                case .components: ComponentsTab(bottle: bottle)
+                case .settings: SettingsTab(bottle: bottle)
+                case .tools: toolsTab
+                }
             }
-            .padding(24)
+            .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .disabled(isBusy)
-        .task(id: bottle.url) { await rescan() }
-        .onChange(of: isBusy) { busy in
-            if !busy { Task { await rescan() } }
-        }
-        .onChange(of: model.running.count) { _ in
-            // Installers usually just finished; pick up what they installed.
-            Task { await rescan() }
-        }
-    }
-
-    // MARK: Sections
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "shippingbox.fill")
-                .font(.system(size: 34))
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(bottle.config.name).font(.largeTitle.weight(.semibold))
-                Text("\(bottle.config.windowsVersion.label) · \(model.runtime?.source ?? "Wine")")
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button {
-                model.openDriveC(bottle)
-            } label: {
-                Label("C: Drive", systemImage: "internaldrive")
-            }
-            Button(role: .destructive) {
-                Task { await model.killAll(in: bottle.url) }
-            } label: {
-                Label("Stop All", systemImage: "stop.fill")
-            }
-            .help("Quit every Windows program running in this bottle")
-            Button {
-                model.chooseAndRun(in: bottle.url)
-            } label: {
-                Label("Run Program…", systemImage: "play.fill")
-            }
-            .buttonStyle(.borderedProminent)
-        }
-    }
-
-    private var busyBanner: some View {
-        HStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text(model.busyMessage[bottle.url] ?? "Working…")
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private var dropZone: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "arrow.down.app")
-                .font(.title)
-            Text("Drop a Windows .exe or .msi here to run or install it")
-                .font(.callout)
-        }
-        .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 22)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.5))
-        )
+        .background(Color(nsColor: .windowBackgroundColor))
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(WindowsFileTypes.isWindowsFile)
             files.forEach { model.run($0, in: bottle) }
             return !files.isEmpty
-        } isTargeted: { isDropTargeted = $0 }
+        } isTargeted: { dropTargeted = $0 }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Theme.brand, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
+                    .background(Theme.violet.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(Label("Drop to run in “\(bottle.config.name)”", systemImage: "arrow.down.app.fill")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(Theme.violet))
+                    .padding(14)
+                    .allowsHitTesting(false)
+            }
+        }
+        .task(id: bottle.url) { await model.refreshPrograms(bottle.url) }
     }
+
+    // MARK: Hero
+
+    private var hero: some View {
+        let color = Theme.color(for: bottle.config.name)
+        return HStack(alignment: .center, spacing: 18) {
+            BottleBadge(name: bottle.config.name, size: 64)
+                .shadow(color: color.opacity(0.4), radius: 10, y: 4)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(bottle.config.name)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                HStack(spacing: 8) {
+                    Chip(text: bottle.config.windowsVersion.label, symbol: "pc")
+                    Chip(text: "\(programCount) programs", symbol: "square.grid.2x2")
+                    if bottle.config.dxvk { Chip(text: "DXVK", symbol: "bolt.fill") }
+                    if model.defaultBottleURL == bottle.url { Chip(text: "Default", symbol: "star.fill") }
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 8) {
+                Button {
+                    model.chooseAndRun(in: bottle.url)
+                } label: {
+                    Label("Install or Run…", systemImage: "plus")
+                }
+                .buttonStyle(GradientButtonStyle())
+                HStack(spacing: 8) {
+                    Button {
+                        model.openDriveC(bottle)
+                    } label: {
+                        Label("C: Drive", systemImage: "internaldrive")
+                    }
+                    .buttonStyle(PillButtonStyle())
+                    Button {
+                        Task { await model.killAll(in: bottle.url) }
+                    } label: {
+                        Label("Stop All", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(PillButtonStyle())
+                    .help("Quit every Windows program running in this bottle")
+                }
+            }
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(LinearGradient(colors: [color.opacity(0.20), color.opacity(0.05)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(color.opacity(0.25)))
+    }
+
+    private var programCount: Int {
+        model.library.filter { $0.bottleURL == bottle.url }.count
+    }
+
+    private var busyBanner: some View {
+        HStack(spacing: 12) {
+            ProgressView().controlSize(.small)
+            Text(model.busyMessage[bottle.url] ?? "Working…")
+                .font(.callout.weight(.medium))
+            Spacer()
+            Button("Show Log") { model.showLog = true }
+                .buttonStyle(.borderless)
+        }
+        .padding(14)
+        .background(Theme.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // MARK: Programs
 
     @ViewBuilder
-    private var pinnedSection: some View {
-        if !bottle.config.pinned.isEmpty {
-            SectionBox(title: "Pinned") {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
-                    ForEach(bottle.config.pinned) { program in
-                        PinnedTile(program: program, bottle: bottle)
-                    }
-                }
-            }
-        }
-    }
-
-    private var installedSection: some View {
-        SectionBox(title: "Installed Programs", trailing: {
-            Button {
-                Task { await rescan() }
-            } label: {
-                if scanning { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") }
-            }
-            .buttonStyle(.borderless)
-            .help("Scan the bottle again")
-        }) {
-            if discovered.isEmpty {
-                Text(scanning ? "Scanning…" : "Nothing installed yet. Run an installer (setup.exe or .msi) to add programs.")
+    private var programsTab: some View {
+        let items = model.library.filter { $0.bottleURL == bottle.url }
+        if items.isEmpty {
+            VStack(spacing: 14) {
+                Image(systemName: "arrow.down.app")
+                    .font(.system(size: 40))
+                    .foregroundStyle(Theme.brand)
+                Text(model.scanning.contains(bottle.url) ? "Looking for programs…" : "No programs installed in this bottle yet")
+                    .font(.headline)
+                Text("Drop a Windows installer here or click Install or Run.")
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
+                if !bottle.config.hidden.isEmpty {
+                    Button("Show \(bottle.config.hidden.count) hidden programs") { model.unhideAll(in: bottle.url) }
+                        .buttonStyle(.link)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 50)
+            .card(radius: 18)
+        } else {
+            ProgramGrid(items: items, showBottle: false)
+            if !bottle.config.hidden.isEmpty {
+                Button("Show \(bottle.config.hidden.count) hidden programs") { model.unhideAll(in: bottle.url) }
+                    .buttonStyle(.link)
+            }
+        }
+    }
+
+    // MARK: Tools
+
+    private var toolsTab: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 14)], spacing: 14) {
+            ForEach(WineTool.allCases) { tool in
+                Button {
+                    model.runTool(tool, in: bottle)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: tool.symbol)
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: 38, height: 38)
+                            .background(Theme.brand, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(tool.title).font(.body.weight(.semibold))
+                            Text(tool.subtitle).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .card(padding: 14)
+            }
+        }
+    }
+}
+
+struct Chip: View {
+    let text: String
+    var symbol: String? = nil
+    var body: some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol).font(.caption2) }
+            Text(text).font(.caption.weight(.medium))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+    }
+}
+
+// MARK: - Components tab
+
+private struct ComponentsTab: View {
+    @EnvironmentObject private var model: AppModel
+    let bottle: Bottle
+
+    private var isBusy: Bool { model.busyBottles.contains(bottle.url) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Windows components")
+                        .font(.title3.weight(.semibold))
+                    Text("When a program complains about a missing DLL, runtime or font, install it here. Components download from Microsoft and other official sources.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                let missing = ComponentCatalog.essentials.filter { !bottle.config.installedComponents.contains($0.verb) }
+                if !missing.isEmpty {
+                    Button("Install Essentials") {
+                        Task { await model.installComponents(missing.map(\.verb), in: bottle.url) }
+                    }
+                    .buttonStyle(GradientButtonStyle())
+                    .disabled(isBusy)
+                }
+            }
+
+            if model.winetricksURL == nil {
+                Label("The component installer is missing. Run setup again from Settings to restore it.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+
+            ForEach(WindowsComponent.Category.allCases) { category in
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(category.rawValue, systemImage: category.symbol)
+                        .font(.headline)
+                    VStack(spacing: 0) {
+                        let items = ComponentCatalog.all.filter { $0.category == category }
+                        ForEach(items) { component in
+                            ComponentRow(component: component, bottle: bottle, disabled: isBusy)
+                            if component.id != items.last?.id { Divider().padding(.leading, 14) }
+                        }
+                    }
+                    .card(padding: 4)
+                }
+            }
+        }
+    }
+}
+
+private struct ComponentRow: View {
+    @EnvironmentObject private var model: AppModel
+    let component: WindowsComponent
+    let bottle: Bottle
+    let disabled: Bool
+
+    private var installed: Bool { bottle.config.installedComponents.contains(component.verb) }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(component.name).font(.body.weight(.medium))
+                    if component.essential {
+                        Text("Essential")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.violet)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Theme.violet.opacity(0.12), in: Capsule())
+                    }
+                }
+                Text(component.detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if installed {
+                Menu {
+                    Button("Reinstall") {
+                        Task { await model.installComponents([component.verb], in: bottle.url) }
+                    }
+                } label: {
+                    Label("Installed", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(disabled)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(discovered, id: \.self) { exe in
-                        ProgramRow(exe: exe, bottle: bottle)
-                        if exe != discovered.last { Divider() }
+                Button("Install") {
+                    Task { await model.installComponents([component.verb], in: bottle.url) }
+                }
+                .buttonStyle(PillButtonStyle())
+                .disabled(disabled || model.winetricksURL == nil)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Settings tab
+
+private struct SettingsTab: View {
+    @EnvironmentObject private var model: AppModel
+    let bottle: Bottle
+    @State private var confirmDelete = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingGroup(title: "Compatibility", symbol: "puzzlepiece.extension.fill") {
+                SettingRow(title: "Windows version", detail: "What version of Windows programs see. Try Windows 7 for older software.") {
+                    Picker("", selection: binding(\.windowsVersion)) {
+                        ForEach(WindowsVersion.allCases) { Text($0.label).tag($0) }
                     }
+                    .labelsHidden()
+                    .frame(width: 160)
+                }
+                Divider()
+                SettingRow(title: "Faster multithreading",
+                           detail: "Speeds up most games and apps. Turn off if a program freezes at startup.") {
+                    Toggle("", isOn: binding(\.msync)).labelsHidden().toggleStyle(.switch)
+                }
+            }
+
+            SettingGroup(title: "Graphics", symbol: "sparkles.tv.fill") {
+                SettingRow(title: "DirectX → Metal translation (DXVK)",
+                           detail: model.dxvkAvailable
+                           ? "Runs DirectX 9, 10 and 11 games through Vulkan and Metal. Usually faster and more compatible for games; turn off if a program shows a black window."
+                           : "Not available. Run setup again from Settings to install it.") {
+                    Toggle("", isOn: binding(\.dxvk)).labelsHidden().toggleStyle(.switch)
+                        .disabled(!model.dxvkAvailable)
+                }
+                Divider()
+                SettingRow(title: "Retina mode",
+                           detail: "Renders at full Mac resolution. Sharper, but some programs look small.") {
+                    Toggle("", isOn: binding(\.retina)).labelsHidden().toggleStyle(.switch)
+                }
+            }
+
+            SettingGroup(title: "Bottle", symbol: "shippingbox.fill") {
+                SettingRow(title: "Open .exe files from Finder here",
+                           detail: "Double-clicked Windows files run in this bottle.") {
+                    Toggle("", isOn: Binding(
+                        get: { model.defaultBottleURL == bottle.url },
+                        set: { if $0 { model.defaultBottleURL = bottle.url } }
+                    ))
+                    .labelsHidden().toggleStyle(.switch)
+                }
+                Divider()
+                SettingRow(title: "Detailed logging", detail: "Shows more of Wine's output in the log. Useful when something won't start.") {
+                    Toggle("", isOn: binding(\.verboseLogging)).labelsHidden().toggleStyle(.switch)
+                }
+                Divider()
+                SettingRow(title: "Location", detail: bottle.url.path) {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([bottle.url]) }
+                        .buttonStyle(PillButtonStyle())
+                }
+            }
+
+            SettingGroup(title: "Danger zone", symbol: "exclamationmark.triangle.fill") {
+                SettingRow(title: "Delete this bottle",
+                           detail: "Moves the bottle and every program installed in it to the Trash.") {
+                    Button("Delete…", role: .destructive) { confirmDelete = true }
                 }
             }
         }
-    }
-
-    private var settingsSection: some View {
-        SectionBox(title: "Settings") {
-            Form {
-                Picker("Windows version", selection: binding(\.windowsVersion)) {
-                    ForEach(WindowsVersion.allCases) { Text($0.label).tag($0) }
-                }
-                Toggle("Faster multithreading (MSync)", isOn: binding(\.msync))
-                    .help("Speeds up most games. Turn off if a program hangs or crashes.")
-                Toggle("Retina mode (sharper, but smaller UI)", isOn: binding(\.retina))
-                Toggle("Detailed Wine logging", isOn: binding(\.verboseLogging))
-                    .help("Useful when diagnosing why a program won't start.")
-            }
-            .formStyle(.columns)
+        .confirmationDialog("Delete “\(bottle.config.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) { model.deleteBottle(bottle.url) }
+        } message: {
+            Text("Every program installed in this bottle goes to the Trash with it.")
         }
     }
-
-    private var toolsSection: some View {
-        SectionBox(title: "Windows Tools") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
-                ForEach(WineTool.allCases) { tool in
-                    Button {
-                        model.runTool(tool, in: bottle)
-                    } label: {
-                        Label(tool.title, systemImage: tool.symbol)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .controlSize(.large)
-                }
-            }
-        }
-    }
-
-    // MARK: Helpers
 
     private func binding<T>(_ keyPath: WritableKeyPath<BottleConfig, T>) -> Binding<T> {
         Binding(
@@ -181,124 +384,42 @@ struct BottleDetailView: View {
             set: { value in model.updateConfig(bottle.url) { $0[keyPath: keyPath] = value } }
         )
     }
-
-    private func rescan() async {
-        scanning = true
-        discovered = await model.discoverPrograms(in: bottle)
-        scanning = false
-    }
 }
 
-// MARK: - Subviews
-
-private struct SectionBox<Content: View, Trailing: View>: View {
+struct SettingGroup<Content: View>: View {
     let title: String
-    let trailing: Trailing
-    let content: Content
-
-    init(title: String, @ViewBuilder trailing: () -> Trailing, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.trailing = trailing()
-        self.content = content()
-    }
+    let symbol: String
+    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title).font(.headline)
-                Spacer()
-                trailing
-            }
-            content
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol)
+                .font(.headline)
+            VStack(spacing: 0) { content }
+                .card(padding: 4)
         }
     }
 }
 
-extension SectionBox where Trailing == EmptyView {
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.init(title: title, trailing: { EmptyView() }, content: content)
-    }
-}
-
-private struct PinnedTile: View {
-    @EnvironmentObject private var model: AppModel
-    let program: PinnedProgram
-    let bottle: Bottle
+struct SettingRow<Control: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder let control: Control
 
     var body: some View {
-        Button {
-            model.run(program.url, in: bottle)
-        } label: {
-            VStack(spacing: 8) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: program.path))
-                    .resizable()
-                    .frame(width: 48, height: 48)
-                Text(program.name)
-                    .font(.callout)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity, minHeight: 96)
-            .padding(8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
-        .contextMenu {
-            Button("Run") { model.run(program.url, in: bottle) }
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([program.url]) }
-            Divider()
-            Button("Unpin") { model.unpin(program, in: bottle.url) }
-        }
-        .help(program.path)
-    }
-}
-
-private struct ProgramRow: View {
-    @EnvironmentObject private var model: AppModel
-    let exe: URL
-    let bottle: Bottle
-
-    private var isPinned: Bool {
-        bottle.config.pinned.contains { $0.path == exe.path }
-    }
-
-    private var relativeFolder: String {
-        let base = bottle.driveC.path
-        let folder = exe.deletingLastPathComponent().path
-        return folder.hasPrefix(base) ? "C:" + folder.dropFirst(base.count).replacingOccurrences(of: "/", with: "\\") : folder
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: exe.path))
-                .resizable()
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(exe.deletingPathExtension().lastPathComponent)
-                Text(relativeFolder)
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.medium))
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(3)
             }
-            Spacer()
-            Button {
-                if let pinned = bottle.config.pinned.first(where: { $0.path == exe.path }) {
-                    model.unpin(pinned, in: bottle.url)
-                } else {
-                    model.pin(exe, in: bottle.url)
-                }
-            } label: {
-                Image(systemName: isPinned ? "pin.fill" : "pin")
-            }
-            .buttonStyle(.borderless)
-            .help(isPinned ? "Unpin" : "Pin to the top")
-            Button("Run") { model.run(exe, in: bottle) }
+            Spacer(minLength: 12)
+            control
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }

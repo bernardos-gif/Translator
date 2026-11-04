@@ -1,87 +1,78 @@
 # Translator
 
-A native macOS app that runs Windows programs on your Mac.
+**Run Windows programs and games on your Mac.** No Windows license, no virtual machine, nothing to configure.
 
-Translator is a friendly front end for [Wine](https://www.winehq.org/), the open-source compatibility layer that CrossOver and Whisky are built on. Wine translates Windows system calls into macOS ones as the program runs, so there's no virtual machine and no Windows license needed.
+Translator is a native macOS app built on [Wine](https://www.winehq.org/), the open-source compatibility layer behind CrossOver and Whisky. Wine translates what a Windows program asks for into macOS calls as it runs.
 
-## What it does
+## Install
 
-- **Bottles**: each bottle is an isolated Windows environment with its own `C:` drive, registry and settings. Keep games, office apps and old software apart so they can't break each other.
-- **Run or install anything**: pick an `.exe`, `.msi`, `.bat` or `.lnk`, drag it onto the window, or double-click it in Finder (choose *Open With → Translator*).
-- **Finds installed programs** in each bottle's `Program Files` and lets you pin favourites as a launcher grid.
-- **Per-bottle settings**: Windows version (XP → 11), MSync for faster multithreading, Retina mode, detailed logging.
-- **Built-in Windows tools**: Wine configuration, Control Panel, uninstaller, Registry Editor, Task Manager, Command Prompt, File Explorer.
-- **Stop All** kills every Windows process in a bottle when something hangs.
-- **Live log** of Wine's output for troubleshooting (⇧⌘L).
-- **Guided setup** that detects Wine automatically and walks you through installing it.
+1. Download the latest **`Translator-x.y.z.dmg`** from the [Releases page](https://github.com/bernardos-gif/Translator/releases).
+2. Open it and drag **Translator** into **Applications**.
+3. Open Translator. The first time, macOS blocks it because it isn't notarized yet: go to **System Settings → Privacy & Security** and click **Open Anyway**.
+4. Click **Set Up Translator**. Everything else is automatic.
 
-## Requirements
+### What setup installs for you
 
-- macOS 13 Ventura or later (Apple Silicon or Intel)
-- Wine for macOS. The app's welcome screen walks you through it; in short:
+| Step | What it is | Why |
+|---|---|---|
+| Rosetta 2 | Apple's Intel-code translator (Apple Silicon only) | Wine for macOS is Intel code |
+| Wine Staging | The Windows compatibility engine, latest macOS build | Runs the programs; Staging carries extra compatibility patches |
+| Wine Mono + Gecko | Open-source .NET and web engine | Programs built on .NET or showing web pages |
+| winetricks + cabextract | Component installer (bundled in the app) | One-click Windows runtimes |
+| DXVK + MoltenVK | DirectX 9/10/11 → Vulkan → Metal | Better game compatibility and speed |
+| "My Windows" bottle | A ready Windows 10 environment | Somewhere to install programs |
+| Essentials | Core fonts, Visual C++ 2015–2022, DirectX 9, shader compiler | The most common "missing DLL" errors, fixed up front |
 
-  ```bash
-  softwareupdate --install-rosetta --agree-to-license   # Apple Silicon only
-  ```
+Takes about 5–10 minutes and ~1.5 GB of disk space.
 
-  ```bash
-  brew install --cask wine-stable
-  ```
+## Using it
 
-  ```bash
-  xattr -drs com.apple.quarantine "/Applications/Wine Stable.app"
-  ```
+- **Install a program**: download its Windows installer, then drop it on the window, click **Install or Run…**, or double-click it in Finder (*Open With → Translator*).
+- **Library**: every installed program across all bottles, with its real icon. Click **Play**.
+- **Bottles**: separate Windows environments. Presets:
+  - **Apps**: Windows 10, fonts, Visual C++
+  - **Games**: DXVK on, plus DirectX 9/10/11, XAudio and XInput
+  - **Older Software**: Windows 7 and older Visual C++ runtimes
+- **Components**: one-click install of 20+ runtimes: .NET Framework 4.8, .NET 6/8, Visual C++ 2005–2022, XNA, PhysX, DirectX libraries, CJK fonts, media codecs.
+- **Per-bottle settings**: Windows version (XP → 11), DXVK, faster multithreading (MSync), Retina mode.
+- **Tools**: Control Panel, Registry Editor, Task Manager, Command Prompt, File Explorer, uninstaller.
+- **Desktop shortcuts** for any program, plus a live **log** (⇧⌘L) for troubleshooting.
 
-  If the Homebrew cask isn't available, download `wine-stable` from [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases), drag *Wine Stable.app* into Applications, and run the `xattr` command above. Translator also works with any other `wine`/`wine64` binary you point it to (Settings → Choose…).
+### When a program doesn't work
 
-## Build and run
+1. Look at its error message and install the matching component (e.g. *"MSVCP140.dll missing"* → Visual C++ 2015–2022; *".NET Framework required"* → .NET 4.8).
+2. For games, try toggling **DXVK** in the bottle's Settings.
+3. For older programs, set the Windows version to 7 or XP.
+4. Check [WineHQ's AppDB](https://appdb.winehq.org/) for program-specific tips.
 
-You need Xcode or the Command Line Tools (`xcode-select --install`).
+### What can't run
 
-Quick run during development:
+- Games with kernel-level anti-cheat (Valorant, Fortnite, many online shooters).
+- Drivers and system utilities (VPNs, antivirus, hardware tools).
+- DirectX 12-only games need Apple's Game Porting Toolkit or CrossOver; point Translator at that Wine in **Settings → Advanced**.
+
+## Building from source
+
+Requires macOS 13+ with Xcode or the Command Line Tools.
 
 ```bash
-swift run
-```
-
-Build a proper double-clickable app in `dist/Translator.app`:
-
-```bash
-./scripts/build-app.sh
+./scripts/fetch-tools.sh
 ```
 
 ```bash
-cp -R dist/Translator.app /Applications/
+./scripts/build-app.sh --dmg
 ```
 
-You can also open `Package.swift` in Xcode and press ⌘R.
+This produces `dist/Translator.app` and `dist/Translator-<version>.dmg`. For quick development runs use `swift run` (helpers then download during setup).
 
-Because the app is ad-hoc signed, the first launch may need right-click → **Open**.
+Every push to the default branch builds the app on GitHub Actions, test-runs Wine, and publishes the DMG to the release named after `VERSION`.
 
 ## Where things live
 
-- Bottles: `~/Library/Application Support/Translator/Bottles/<name>/`
-  - `drive_c/` is the bottle's `C:` drive
-  - `bottle.json` holds Translator's settings for the bottle
+- `~/Library/Application Support/Translator/Runtime/`: Wine
+- `~/Library/Application Support/Translator/Bottles/<name>/drive_c/`: each bottle's C: drive
+- `~/Library/Application Support/Translator/Tools/`: helpers downloaded during setup
 
-## Limitations
+## Credits
 
-Wine runs a large share of Windows software, though not all of it:
-
-- Games with kernel-level anti-cheat (Valorant, Fortnite, many online shooters) won't run.
-- DirectX 12 games need Apple's Game Porting Toolkit or CrossOver's D3DMetal; point Translator at a GPTK/CrossOver `wine` binary to use them.
-- Programs that install drivers (VPNs, hardware utilities) won't work.
-- Check [WineHQ's AppDB](https://appdb.winehq.org/) to see how well a specific program runs.
-
-## Project layout
-
-```
-Sources/Translator/
-  TranslatorApp.swift       App entry, menus, Finder "Open With" handling
-  Model/AppModel.swift      Bottles, process launching, logging
-  Model/Bottle.swift        Bottle / settings types
-  Wine/WineRuntime.swift    Finds Wine and builds the environment for it
-  Wine/WineSupport.swift    Built-in tools, file types, program scanner
-  Views/                    SwiftUI interface
-scripts/build-app.sh        Packages a signed .app bundle
-```
+Wine (LGPL) by the Wine project · macOS Wine builds by Gcenx · DXVK by Philip Rebohle (macOS port by Gcenx) · MoltenVK by the Khronos Group · winetricks · cabextract by Stuart Caie.

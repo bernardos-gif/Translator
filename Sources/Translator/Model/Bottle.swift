@@ -36,10 +36,34 @@ struct BottleConfig: Codable, Hashable {
     var msync: Bool = true
     /// Render at native Retina resolution instead of scaled.
     var retina: Bool = false
+    /// Translate DirectX 9–11 through Vulkan → Metal (DXVK) for better game performance.
+    var dxvk: Bool = false
     /// Show Wine's own debug output in the log instead of silencing it.
     var verboseLogging: Bool = false
     var pinned: [PinnedProgram] = []
+    var hidden: [String] = []
+    var installedComponents: [String] = []
     var created: Date = Date()
+
+    init(name: String, windowsVersion: WindowsVersion = .win10) {
+        self.name = name
+        self.windowsVersion = windowsVersion
+    }
+
+    // Decode leniently so bottles made by older versions keep working.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        windowsVersion = try c.decodeIfPresent(WindowsVersion.self, forKey: .windowsVersion) ?? .win10
+        msync = try c.decodeIfPresent(Bool.self, forKey: .msync) ?? true
+        retina = try c.decodeIfPresent(Bool.self, forKey: .retina) ?? false
+        dxvk = try c.decodeIfPresent(Bool.self, forKey: .dxvk) ?? false
+        verboseLogging = try c.decodeIfPresent(Bool.self, forKey: .verboseLogging) ?? false
+        pinned = try c.decodeIfPresent([PinnedProgram].self, forKey: .pinned) ?? []
+        hidden = try c.decodeIfPresent([String].self, forKey: .hidden) ?? []
+        installedComponents = try c.decodeIfPresent([String].self, forKey: .installedComponents) ?? []
+        created = try c.decodeIfPresent(Date.self, forKey: .created) ?? Date()
+    }
 }
 
 /// A bottle is one isolated Windows environment (a WINEPREFIX) with its own C: drive and registry.
@@ -61,6 +85,18 @@ struct Bottle: Identifiable, Hashable {
 struct RunningProgram: Identifiable {
     let id: UUID
     let name: String
+    let path: String
     let bottleURL: URL
     let process: Process
+}
+
+/// An entry in the library: an installed or pinned program in some bottle.
+struct LibraryItem: Identifiable, Hashable {
+    let url: URL
+    let name: String
+    let bottleURL: URL
+    let bottleName: String
+    let isPinned: Bool
+
+    var id: String { bottleURL.path + "|" + url.path }
 }

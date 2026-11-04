@@ -1,0 +1,85 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [claude/great-hypatia-fjs6s2, main]
+    paths-ignore: ["README.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          uname -m
+          swift --version
+
+      - name: Fetch bundled tools (winetricks, cabextract, DXVK)
+        run: ./scripts/fetch-tools.sh
+
+      - name: Build app and disk image
+        run: ./scripts/build-app.sh --dmg
+
+      - name: Smoke test (launch the app)
+        run: |
+          ./dist/Translator.app/Contents/MacOS/Translator &
+          PID=$!
+          sleep 12
+          if kill -0 $PID 2>/dev/null; then echo "App is running"; kill $PID; else echo "App exited early"; wait $PID; exit 1; fi
+
+      - name: Wine integration test
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          set -x
+          /usr/bin/pgrep -q oahd && echo "Rosetta present" || sudo softwareupdate --install-rosetta --agree-to-license || true
+          URL=$(gh api "repos/Gcenx/macOS_Wine_builds/releases?per_page=10" --jq '[.[] | select(.prerelease == false) | .assets[] | select(.name | test("^wine-staging.*osx64.tar.xz$"))][0].browser_download_url')
+          echo "Wine: $URL"
+          curl -fsSL -o wine.tar.xz "$URL"
+          mkdir -p rt && tar -xJf wine.tar.xz -C rt
+          WINE="$(find rt -path '*/bin/wine' -type f | head -1)"
+          ROOT="$(dirname "$(dirname "$WINE")")"
+          echo "--- add-on versions Wine expects:"
+          strings -e l "$ROOT/lib/wine/x86_64-windows/appwiz.cpl" | grep -iE "gecko|mono" | head || true
+          strings "$ROOT/lib/wine/x86_64-windows/appwiz.cpl" | grep -E "^[0-9]+\.[0-9]+(\.[0-9]+)?$" | head || true
+          ls "$ROOT/share/wine" || true
+          "$WINE" --version
+          export WINEPREFIX="$PWD/prefix" WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;winemenubuilder.exe=d"
+          export PATH="$(dirname "$WINE"):$PWD/dist/Translator.app/Contents/Resources/Tools:$PATH"
+          "$WINE" wineboot --init; "$(dirname "$WINE")/wineserver" -w
+          ls "$WINEPREFIX/drive_c/windows/system32" | wc -l
+          "$WINE" cmd /c ver
+          WINETRICKS_LATEST_VERSION_CHECK=disabled bash dist/Translator.app/Contents/Resources/Tools/winetricks -q corefonts 2>&1 | tail -15
+          ls "$WINEPREFIX/drive_c/windows/Fonts" | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Translator-dmg
+          path: dist/*.dmg
+
+      - name: Publish GitHub release
+        if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
+        run: |
+          VERSION="$(cat VERSION)"
+          TAG="v$VERSION"
+          DMG="dist/Translator-$VERSION.dmg"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing release $TAG"
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" --target "$GITHUB_SHA" --title "Translator $VERSION" --notes-file .github/release-notes.md
+          fi

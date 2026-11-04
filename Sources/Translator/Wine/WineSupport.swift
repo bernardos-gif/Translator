@@ -31,6 +31,18 @@ enum WineTool: String, CaseIterable, Identifiable {
         }
     }
 
+    var subtitle: String {
+        switch self {
+        case .winecfg: return "Audio, graphics, drives, DLL overrides"
+        case .controlPanel: return "Game controllers, internet settings"
+        case .uninstaller: return "Remove installed programs"
+        case .registry: return "Edit Windows settings directly"
+        case .taskManager: return "See and end running processes"
+        case .commandPrompt: return "A Windows command line"
+        case .explorer: return "Browse this bottle's files"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .winecfg: return "gearshape"
@@ -100,6 +112,29 @@ enum ProgramScanner {
             }
         }
         return sorted(results)
+    }
+
+    private static let genericNames: Set<String> = [
+        "launcher", "launch", "game", "start", "client", "app", "main", "run", "play", "bin",
+        "win32", "win64", "x64", "x86", "shipping", "release",
+    ]
+
+    /// A friendly name: the file name, or its folder's name when the file name is generic.
+    static func displayName(for url: URL) -> String {
+        let base = url.deletingPathExtension().lastPathComponent
+        let normalized = base.lowercased()
+            .replacingOccurrences(of: "-win64-shipping", with: "")
+            .replacingOccurrences(of: "_", with: "")
+        if genericNames.contains(normalized) || normalized.count <= 2 {
+            var folder = url.deletingLastPathComponent()
+            while genericNames.contains(folder.lastPathComponent.lowercased()) || folder.lastPathComponent.lowercased() == "binaries" {
+                folder = folder.deletingLastPathComponent()
+            }
+            let name = folder.lastPathComponent
+            if !name.isEmpty, !name.lowercased().hasPrefix("program files") { return name }
+        }
+        if base.hasSuffix("-Win64-Shipping") { return String(base.dropLast("-Win64-Shipping".count)) }
+        return base
     }
 
     private static func sorted(_ urls: [URL]) -> [URL] {
