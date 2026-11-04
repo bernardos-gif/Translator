@@ -1,0 +1,44 @@
+name: probe
+on:
+  push:
+    branches: [claude/great-hypatia-fjs6s2]
+    paths: [".github/workflows/probe.yml"]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers; uname -m; swift --version; xcodebuild -version
+      - name: Wine releases
+        run: |
+          gh api "repos/Gcenx/macOS_Wine_builds/releases?per_page=4" --jq '.[] | "\(.tag_name) \(.prerelease) \(.published_at)", (.assets[] | "    \(.name) \(.size) \(.browser_download_url)")'
+          gh api "repos/Gcenx/macOS_Wine_builds/releases/latest" --jq '.tag_name'
+      - name: Other releases
+        run: |
+          gh api "repos/Gcenx/DXVK-macOS/releases?per_page=2" --jq '.[] | "\(.tag_name)", (.assets[] | "    \(.name) \(.browser_download_url)")' || true
+          gh api "repos/Winetricks/winetricks/releases/latest" --jq '.tag_name' || true
+          gh api "repos/madewokherd/wine-mono/releases?per_page=3" --jq '.[] | "\(.tag_name)", (.assets[] | "    \(.name) \(.browser_download_url)")' || true
+          curl -sI https://www.cabextract.org.uk/cabextract-1.11.tar.gz | head -3
+          curl -sI https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86_64.msi | head -3
+      - name: Inspect wine-staging
+        run: |
+          URL=$(gh api "repos/Gcenx/macOS_Wine_builds/releases/latest" --jq '[.assets[] | select(.name | test("staging.*tar.xz"))][0].browser_download_url')
+          echo "URL=$URL"
+          curl -sL -o wine.tar.xz "$URL"
+          ls -la wine.tar.xz
+          mkdir w && tar -xJf wine.tar.xz -C w
+          find w -maxdepth 4 | head -40
+          find w -iname "*moltenvk*" -o -iname "*mono*" -o -iname "*gecko*" | head -20
+          BIN=$(find w -path "*bin/wine" -o -path "*bin/wine64" | head -3); echo "$BIN"
+          for b in $BIN; do file "$b"; done
+          A=$(find w -name "appwiz.cpl" | head -2); echo "$A"
+          for a in $A; do strings -el "$a" | grep -iE "mono|gecko|[0-9]+\.[0-9]+\.[0-9]+" | head -20; strings "$a" | grep -E "^[0-9]+\.[0-9]+(\.[0-9]+)?$" | head; done
+          find w -name "*.so" -path "*winemac*" | head; find w -name "winevulkan*" | head
+          du -sh w
+      - name: Test-compile current app
+        run: swift build -c release 2>&1 | tail -60
