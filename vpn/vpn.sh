@@ -9,6 +9,12 @@
 #   sudo ./vpn.sh list               list devices and when each last connected
 #   sudo ./vpn.sh uninstall          remove the VPN and every config
 #
+# Used by the VPN Mac app (output meant for programs):
+#   status                           installed|not-installed, endpoint, port, running|stopped
+#   list --tsv                       name, address, last handshake, bytes received, bytes sent
+#   export <name>                    a device's config file, nothing else
+#   uninstall --yes                  uninstall without asking
+#
 # Settings for `install` (environment variables, all optional):
 #   VPN_ENDPOINT   public IP or hostname clients connect to (auto-detected)
 #   VPN_PORT       UDP port                       (default 51820)
@@ -266,6 +272,10 @@ cmd_list() {
 	need_root; need_installed
 	local names
 	names="$(sed -n 's/^### Client //p' "$WG_CONF")"
+	if [[ ${1:-} == --tsv ]]; then
+		list_tsv "$names"
+		return
+	fi
 	if [[ -z $names ]]; then
 		echo "No devices yet. Add one with: sudo $0 add <name>"
 		return
@@ -287,10 +297,50 @@ cmd_list() {
 	done <<<"$names"
 }
 
+client_field() { # <name> <field>: first value of a field inside the device's [Peer] block
+	awk -v m="### Client $1" -v f="$2" '$0==m{p=1; next} p && /^###/{exit} p && $1==f{v=$3; sub(/[\/,].*/, "", v); print v; exit}' "$WG_CONF"
+}
+
+list_tsv() {
+	[[ -n $1 ]] || return 0
+	local handshakes transfer name pub
+	handshakes="$(wg show "$WG_IF" latest-handshakes 2>/dev/null || true)"
+	transfer="$(wg show "$WG_IF" transfer 2>/dev/null || true)"
+	while IFS= read -r name; do
+		pub="$(client_field "$name" PublicKey)"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$(client_field "$name" AllowedIPs)" \
+			"$(awk -v k="$pub" '$1==k{print $2}' <<<"$handshakes")" \
+			"$(awk -v k="$pub" '$1==k{print $2}' <<<"$transfer")" \
+			"$(awk -v k="$pub" '$1==k{print $3}' <<<"$transfer")"
+	done <<<"$1"
+}
+
+cmd_export() {
+	need_root; need_installed
+	[[ -n ${1:-} ]] || die "usage: $0 export <name>"
+	valid_name "$1"
+	[[ -f $CLIENT_DIR/$1.conf ]] || die "no device named '$1'."
+	cat "$CLIENT_DIR/$1.conf"
+}
+
+cmd_status() {
+	need_root
+	if [[ ! -f $PARAMS ]]; then
+		echo "not-installed"
+		return
+	fi
+	load_params
+	local running=stopped
+	wg show "$WG_IF" >/dev/null 2>&1 && running=running
+	printf 'installed\t%s\t%s\t%s\n' "$ENDPOINT" "$PORT" "$running"
+}
+
 cmd_uninstall() {
 	need_root; need_installed
-	read -r -p "This deletes the VPN and every device config. Type 'yes' to continue: " answer
-	[[ $answer == yes ]] || { echo "Cancelled."; return; }
+	if [[ ${1:-} != --yes ]]; then
+		read -r -p "This deletes the VPN and every device config. Type 'yes' to continue: " answer
+		[[ $answer == yes ]] || { echo "Cancelled."; return; }
+	fi
 	load_params
 
 	if command -v systemctl >/dev/null; then
@@ -309,14 +359,16 @@ cmd_uninstall() {
 
 # --------------------------------------------------------------------------
 
-usage() { sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in
 	install)   cmd_install ;;
 	add)       cmd_add "${2:-}" ;;
 	show)      cmd_show "${2:-}" ;;
 	remove)    cmd_remove "${2:-}" ;;
-	list)      cmd_list ;;
-	uninstall) cmd_uninstall ;;
+	list)      cmd_list "${2:-}" ;;
+	export)    cmd_export "${2:-}" ;;
+	status)    cmd_status ;;
+	uninstall) cmd_uninstall "${2:-}" ;;
 	*)         usage; exit 1 ;;
 esac

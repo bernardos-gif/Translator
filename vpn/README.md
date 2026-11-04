@@ -1,6 +1,6 @@
 # VPN
 
-A personal VPN you host yourself, built on [WireGuard](https://www.wireguard.com/). One script sets up the server and manages your devices.
+A personal VPN you host yourself, built on [WireGuard](https://www.wireguard.com/). A Mac app sets up your server and manages your devices; the same server tool also works on its own from the command line.
 
 Everything you do online goes through an encrypted tunnel to your own server, so the Wi-Fi you're on (café, hotel, airport) only sees encrypted traffic, and websites see your server's IP address instead of yours.
 
@@ -9,7 +9,27 @@ Everything you do online goes through an encrypted tunnel to your own server, so
 - A Linux server with a public IP. Any small cloud VPS works (1 CPU, 512 MB RAM is plenty). Supported: Ubuntu, Debian, Fedora, RHEL/Rocky/Alma, Arch, Alpine.
 - The [WireGuard app](https://www.wireguard.com/install/) on each device: iPhone, Android, Mac, Windows or Linux.
 
-## Set up the server
+## The Mac app
+
+1. Download the latest **`VPN-x.y.z.dmg`** from the [Releases page](https://github.com/bernardos-gif/Translator/releases) (the release named *VPN*).
+2. Open it and drag **VPN** into **Applications**. The first time, macOS blocks it because it isn't notarized yet: go to **System Settings → Privacy & Security** and click **Open Anyway**.
+3. Enter your server's address and its root password (or an SSH key) and click **Connect**.
+4. Click **Install VPN**.
+5. **Add Device** shows a QR code to scan with the WireGuard app on a phone, plus copy and save for computers. **Connect This Mac** hands this Mac's config to the WireGuard app.
+
+The app shows each device's status and traffic, and removes devices with one click. It talks to the server over SSH and runs `vpn.sh` there; the password stays in your Keychain.
+
+Requires macOS 13 or later, Apple Silicon or Intel.
+
+### Building the app from source
+
+```bash
+cd vpn && ./scripts/build-app.sh --dmg
+```
+
+This produces `dist/VPN.app` and `dist/VPN-<version>.dmg`. Every push that changes `vpn/` builds it on GitHub Actions and publishes the release `vpn-v<VERSION>`.
+
+## Command line: set up the server
 
 Copy `vpn.sh` to the server, then:
 
