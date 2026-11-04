@@ -5,6 +5,32 @@ on:
     paths: [".github/workflows/probe.yml"]
   workflow_dispatch:
 jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wine releases
+        run: |
+          gh api "repos/Gcenx/macOS_Wine_builds/releases?per_page=4" --jq '.[] | "\(.tag_name) \(.prerelease) \(.published_at)", (.assets[] | "    \(.name) \(.size) \(.browser_download_url)")'
+      - name: Other releases
+        run: |
+          gh api "repos/Gcenx/DXVK-macOS/releases?per_page=2" --jq '.[] | "\(.tag_name)", (.assets[] | "    \(.name) \(.browser_download_url)")' || true
+          gh api "repos/Winetricks/winetricks/releases/latest" --jq '.tag_name' || true
+          gh api "repos/madewokherd/wine-mono/releases?per_page=3" --jq '.[] | "\(.tag_name)", (.assets[] | "    \(.name) \(.browser_download_url)")' || true
+          curl -sI https://www.cabextract.org.uk/cabextract-1.11.tar.gz | head -3
+      - name: Inspect wine-staging
+        run: |
+          URL=$(gh api "repos/Gcenx/macOS_Wine_builds/releases/latest" --jq '[.assets[] | select(.name | test("staging.*tar.xz"))][0].browser_download_url')
+          echo "URL=$URL"
+          curl -sL -o wine.tar.xz "$URL"; ls -la wine.tar.xz
+          mkdir w && tar -xJf wine.tar.xz -C w
+          find w -maxdepth 5 | head -40
+          echo "--- addons/vulkan"; find w -iname "*moltenvk*" -o -iname "*mono*" -o -iname "*gecko*" -o -iname "winevulkan*" -o -iname "*dxmt*" -o -iname "*d3dmetal*" | head -30
+          echo "--- bins"; find w -path "*/bin/*" -type f | head -20
+          A=$(find w -name "appwiz.cpl" | head -2); echo "$A"
+          for a in $A; do echo "== $a"; strings -el "$a" | grep -iE "mono|gecko|msi" | head -20; strings "$a" | grep -iE "mono|gecko|^[0-9]+\.[0-9]+\.[0-9]+$" | head -20; done
+          du -sh w
   probe:
     runs-on: macos-latest
     env:
