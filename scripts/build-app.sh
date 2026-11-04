@@ -16,7 +16,7 @@ echo "→ Building release binary (universal: Apple Silicon + Intel)…"
 swift build -c release --arch arm64 --arch x86_64
 BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 
-echo "→ Assembling $APP…"
+echo "→ Assembling ${APP}…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
