@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   probe:
-    runs-on: macos-15
+    runs-on: macos-latest
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
